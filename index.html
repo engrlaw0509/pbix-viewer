@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PBIX Viewer</title>
+<meta name="description" content="Open a Power BI .pbix file in your browser and check its tables, totals, measures and report fields. The file is never uploaded.">
+<meta name="color-scheme" content="light">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b6e69'/%3E%3Crect x='7' y='16' width='4' height='9' rx='1' fill='white'/%3E%3Crect x='14' y='11' width='4' height='14' rx='1' fill='white'/%3E%3Crect x='21' y='7' width='4' height='18' rx='1' fill='white'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="./" aria-label="PBIX Viewer home">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="currentColor"/><rect x="7" y="16" width="4" height="9" rx="1" fill="#fff"/><rect x="14" y="11" width="4" height="14" rx="1" fill="#fff"/><rect x="21" y="7" width="4" height="18" rx="1" fill="#fff"/></svg>
+    <span>PBIX Viewer</span>
+  </a>
+  <div class="file-pill" id="filePill" hidden></div>
+  <label class="btn btn-primary" id="openBtn">
+    <input type="file" id="fileInput" accept=".pbix,.pbit" hidden>
+    <span>Open .pbix</span>
+  </label>
+</header>
+
+<main id="landing" class="landing">
+  <section class="landing-inner">
+    <h1>Check the data inside a Power BI file</h1>
+    <p class="lede">Open a <code>.pbix</code> to see every table, row and total it holds, read its measures and report fields, and copy anything into Excel to compare.</p>
+    <label class="dropzone" id="dropzone">
+      <input type="file" id="fileInput2" accept=".pbix,.pbit" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0-4 4m4-4 4 4M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <strong>Drop a .pbix file here</strong>
+      <span>or click to choose one</span>
+    </label>
+    <p class="privacy"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 4.4 3 8.3 7 9.5 4-1.2 7-5.1 7-9.5V6l-7-3Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="m9 12 2 2 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Your file stays on this computer. This page reads it in your browser and never uploads it.</p>
+    <div class="features">
+      <div><h3>Tables and rows</h3><p>Every table in the model with search, filters, sorting and a totals row that follows your filters.</p></div>
+      <div><h3>Column checks</h3><p>Non-blank, blank and distinct counts, minimum, maximum and sum for each column.</p></div>
+      <div><h3>Measures</h3><p>The DAX of each measure, with the grand total worked out for simple ones.</p></div>
+      <div><h3>Copy to Excel</h3><p>Copy any table or SQL result and paste it straight into a sheet, or download a CSV.</p></div>
+    </div>
+  </section>
+</main>
+
+<main id="loading" class="loading" hidden>
+  <div class="spinner" aria-hidden="true"></div>
+  <p id="loadingText">Opening the file</p>
+</main>
+
+<main id="error" class="error-page" hidden>
+  <div class="error-card">
+    <h2>This file could not be opened</h2>
+    <p id="errorText"></p>
+    <p class="muted">The file was not uploaded anywhere; the problem is in reading it here. Import-mode models are supported; live-connection and DirectQuery reports keep no data in the file.</p>
+    <label class="btn btn-primary"><input type="file" id="fileInput3" accept=".pbix,.pbit" hidden><span>Open another file</span></label>
+  </div>
+</main>
+
+<div id="workspace" class="workspace" hidden>
+  <nav class="sidebar" id="sidebar" aria-label="Model"></nav>
+  <section class="content" id="content"></section>
+</div>
+
+<footer class="footer" id="footer">
+  <span>Runs entirely in your browser. Built on the open-source decoders <a href="https://github.com/Hugoberry/pbixray" target="_blank" rel="noopener">PBIXray</a> and <a href="https://github.com/Hugoberry/xpress9-python" target="_blank" rel="noopener">Xpress9</a>, plus <a href="https://github.com/sql-js/sql.js" target="_blank" rel="noopener">sql.js</a> and <a href="https://github.com/101arrowz/fflate" target="_blank" rel="noopener">fflate</a> (all MIT).</span>
+  <a href="https://github.com/engrlaw0509/pbix-viewer" target="_blank" rel="noopener">Source on GitHub</a>
+</footer>
+
+<div class="drop-overlay" id="dropOverlay" hidden><div>Drop the .pbix to open it</div></div>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="vendor/sql-wasm-browser.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

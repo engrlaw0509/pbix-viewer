@@ -1,0 +1,16 @@
+{
+  "name": "pbix-viewer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Open a Power BI .pbix file in the browser and check its data. Nothing is uploaded.",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "vendor": "node tools/vendor.mjs",
+    "verify": "node tools/verify.mjs"
+  },
+  "devDependencies": {
+    "fflate": "0.8.3",
+    "sql.js": "1.14.2"
+  }
+}

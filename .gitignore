@@ -1,0 +1,10 @@
+node_modules/
+
+# Power BI files carry client data. They are opened in the browser, never committed.
+*.pbix
+*.pbit
+*.abf
+ref*.json
+
+.claude/
+shots/
