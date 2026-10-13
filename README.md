@@ -1,18 +1,17 @@
 # PBIX Viewer
 
-**Live:** https://lmiautomatalabs.com/pbix-viewer/ (served by GitHub Pages;
-https://engrlaw0509.github.io/pbix-viewer/ redirects there because the account's user
-site has that custom domain)
+**Live:** https://pbix-viewer.up.railway.app/
 
 Open a Power BI `.pbix` file in the browser and check the data inside it: every table
 and row, column totals that follow your filters, the DAX of each measure, the fields and
 filters behind each report visual, and a SQL box. Anything can be copied straight into
 Excel or downloaded as CSV for a side-by-side comparison.
 
-**The file never leaves your computer.** The page is static (GitHub Pages serves only
-HTML, JavaScript and CSS) and reads the file in your browser; there is no server and no
-upload. The page loads nothing from other sites: its two libraries are copied into
-`vendor/`.
+**The file never leaves your computer.** The page reads it in your browser. The server
+(`server.mjs`) only hands out the page's own HTML, JavaScript and CSS and accepts no
+uploads, and its Content-Security-Policy (`connect-src 'self'`) stops the page from
+sending anything to another site. The page loads nothing from other sites either: its two
+libraries are copied into `vendor/`.
 
 ## What it shows
 
@@ -79,13 +78,16 @@ decoded the same way but have not been checked against a real file yet.
 
 Keep `.pbix` files and reference dumps out of the repository; `.gitignore` blocks them.
 
-## Running locally
-
-Any static server works, for example:
+## Running and hosting
 
 ```bash
-npx --yes serve .
+npm start
 ```
+
+serves the page on http://localhost:8080 (or `$PORT`). It is hosted on Railway (project
+`pbix-viewer`, service `web`), which redeploys automatically on every push to `main`.
+GitHub Pages is not used: under this account it would be forced onto the user site's
+custom domain.
 
 `npm run vendor` refreshes `vendor/` after changing the fflate or sql.js version.
 

@@ -11,8 +11,11 @@ numbers clearly and get them into Excel fast.
 
 ## Decisions
 
-- **Hosting:** a public GitHub repository served by GitHub Pages. A claude.ai artifact
-  was ruled out because its sandbox blocks loading WebAssembly.
+- **Hosting:** code in a public GitHub repository, served from Railway
+  (https://pbix-viewer.up.railway.app/, auto-deploy from `main`). GitHub Pages was tried
+  first, but under this account it is forced onto the user site's custom domain, which
+  the owner does not want used for this. A claude.ai artifact was ruled out because its
+  sandbox blocks loading WebAssembly.
 - **Privacy:** the file is read in the browser only; nothing is uploaded and nothing is
   loaded from third-party servers (libraries are vendored). No `.pbix` or data dump is
   ever committed; `.gitignore` blocks them.
