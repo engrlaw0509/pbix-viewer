@@ -1,6 +1,8 @@
 # PBIX Viewer
 
-**Live:** https://engrlaw0509.github.io/pbix-viewer/
+**Live:** https://lmiautomatalabs.com/pbix-viewer/ (served by GitHub Pages;
+https://engrlaw0509.github.io/pbix-viewer/ redirects there because the account's user
+site has that custom domain)
 
 Open a Power BI `.pbix` file in the browser and check the data inside it: every table
 and row, column totals that follow your filters, the DAX of each measure, the fields and
