@@ -55,7 +55,9 @@ createServer(async (req, res) => {
     // Every file revalidates (cheap 304s): the modules import each other, so after a
     // deploy a fresh page must never run against a stale cached module.
     const common = { 'Cache-Control': 'no-cache', ETag: entry.etag, ...HEADERS };
-    if (req.headers['if-none-match'] === entry.etag) {
+    // Railway's edge compresses responses and weakens the ETag to W/"..."; compare without it.
+    const sent = String(req.headers['if-none-match'] || '').split(',').map(t => t.trim().replace(/^W\//, ''));
+    if (sent.includes(entry.etag)) {
       res.writeHead(304, common).end();
       return;
     }
