@@ -1,8 +1,9 @@
 import { unzipSync } from '../vendor/fflate.js';
-import { PbixFile, DataType } from './pbix.js';
+import { PbixFile, DataType, describeFilters } from './pbix.js';
 import { columnFormat, guessFormat, display, displayTotal, raw, toDelimited, downloadText, bytesLabel, fmtCount, isNumericType } from './format.js';
 import { Grid } from './grid.js';
 import { tryMeasure } from './dax.js';
+import { ModelData, checkVisual, isSlicer, hasNoData } from './visualcheck.js';
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -82,7 +83,7 @@ async function openFile(file) {
     Object.assign(state, {
       pbix, fileName: file.name, fileSize: file.size, tables,
       byName: new Map(tables.map(t => [t.meta.name, t])),
-      route: { view: 'overview' }, sqlText: '', sqlResult: null, daxCtx: null,
+      route: { view: 'overview' }, sqlText: '', sqlResult: null, daxCtx: null, visualModel: null,
     });
     renderTopbar();
     renderSidebar();
@@ -143,9 +144,10 @@ function renderSidebar() {
 
 function markActive() {
   const r = state.route;
+  const view = r.view === 'visual' ? 'report' : r.view;
   $('sidebar').querySelectorAll('[data-route]').forEach(b => {
     const br = JSON.parse(b.dataset.route);
-    b.classList.toggle('active', br.view === r.view && (br.view !== 'table' || br.table === r.table));
+    b.classList.toggle('active', br.view === view && (br.view !== 'table' || br.table === r.table));
   });
 }
 
@@ -162,6 +164,7 @@ function go(route) {
     case 'measures': return renderMeasures(c);
     case 'relationships': return renderRelationships(c);
     case 'report': return renderReport(c);
+    case 'visual': return renderVisualCheck(c, route.page, route.visual);
     case 'sql': return renderSql(c);
   }
 }
@@ -599,31 +602,112 @@ function renderReport(c) {
   h += '<p class="muted" style="margin:0 0 14px">Charts are not drawn here; each visual lists the fields it shows and any filter it applies. When a number on the report does not match your source, check its filters first.</p>';
   const filterLine = (label, list) => (list.length ? `<div class="filters"><span class="filters-label">${label}</span>${list.map(f => `<span class="filter">${esc(f)}</span>`).join('')}</div>` : '');
   if (state.pbix.report.filters && state.pbix.report.filters.length) h += `<div class="panel" style="padding:12px 16px">${filterLine('Filters on all pages', state.pbix.report.filters)}</div>`;
-  for (const p of pages) {
+  pages.forEach((p, pi) => {
     h += `<div class="panel"><h3>${esc(p.name)} <span class="muted" style="font-weight:400">· ${p.visuals.length} visual${p.visuals.length === 1 ? '' : 's'}${p.hidden ? ' · hidden page' : ''}</span></h3>`;
     if (p.filters.length) h += `<div class="panel-note">${filterLine('Filters on this page', p.filters)}</div>`;
     h += '<div class="visual-list">';
-    for (const v of p.visuals) {
+    p.visuals.forEach((v, vi) => {
       const sub = [v.title ? prettyType(v.type) : null, v.hidden ? 'hidden' : null].filter(Boolean).join(' · ');
-      h += `<div class="visual"><div class="vt">${esc(v.title || prettyType(v.type))}</div>${sub ? `<div class="vs">${esc(sub)}</div>` : ''}`;
+      const checkable = state.pbix.model && !isSlicer(v.type) && !hasNoData(v);
+      h += `<div class="visual"><div class="visual-head"><div><div class="vt">${esc(v.title || prettyType(v.type))}</div>${sub ? `<div class="vs">${esc(sub)}</div>` : ''}</div>` +
+        (checkable ? `<button class="btn btn-small" data-check="${pi}:${vi}" title="Rebuild the rows this visual shows, with its filters, to compare">Check numbers</button>` : '') + '</div>';
       if (v.fields.length) {
         const roles = [...new Set(v.fields.map(f => f.role))];
         for (const role of roles) {
           h += `<div class="role-group"><div class="role">${esc(role)}</div><div class="fields">` + v.fields.filter(f => f.role === role).map(f => {
-            const base = f.field.replace(/^[A-Za-z]+\((.*)\)$/, '$1');
-            const isMeasure = measureRefs.has(base);
-            return `<span class="field${isMeasure ? ' measure' : ''}" title="${esc([isMeasure ? 'Measure' : null, f.label ? 'Shown as ' + f.label : null].filter(Boolean).join(' · '))}">${esc(f.field)}</span>`;
+            const isMeasure = f.ref ? f.ref.kind === 'measure' : measureRefs.has(f.field);
+            return `<span class="field${isMeasure ? ' measure' : ''}" title="${esc([isMeasure ? 'Measure' : null, f.header && f.header !== f.field ? 'Shown as ' + f.header : null].filter(Boolean).join(' · '))}">${esc(f.field)}</span>`;
           }).join('') + '</div></div>';
         }
       } else {
         h += '<div class="muted" style="font-size:12.5px">No data fields</div>';
       }
       h += filterLine('Filtered to', v.filters);
+      if (isSlicer(v.type)) {
+        h += `<div class="vs" style="margin-top:10px">${v.slicerSelection ? 'Saved selection: ' + esc(describeSelection(v)) + ' (applied to the other visuals on this page)' : 'No saved selection: it filters nothing until someone picks a value.'}</div>`;
+      }
       h += '</div>';
-    }
+    });
     h += '</div></div>';
-  }
+  });
   c.innerHTML = h;
+  c.querySelectorAll('[data-check]').forEach(b => b.addEventListener('click', () => {
+    const [page, visual] = b.dataset.check.split(':').map(Number);
+    go({ view: 'visual', page, visual });
+  }));
+}
+
+function describeSelection(v) {
+  return describeFilters([{ filter: v.slicerSelection }]).join('; ') || 'a selection';
+}
+
+// ---------------------------------------------------------------- visual check
+
+function visualModel() {
+  if (!state.visualModel) {
+    const tables = state.tables.filter(t => t.data).map(t => ({ name: t.meta.name, rowCount: t.data.rowCount, columns: t.data.columns }));
+    state.visualModel = new ModelData(tables, state.pbix.model.relationships, state.pbix.model.measures);
+  }
+  return state.visualModel;
+}
+
+function renderVisualCheck(c, pi, vi) {
+  const page = state.pbix.report.pages[pi];
+  const v = page && page.visuals[vi];
+  if (!v) return renderReport(c);
+  const title = v.title || prettyType(v.type);
+  let h = `<p style="margin:0 0 8px"><a href="#" id="backToReport">← Report pages</a></p>
+    <div class="page-head"><h2>${esc(title)}</h2><div class="chips"><span class="chip">${esc(page.name)}</span><span class="chip">${esc(prettyType(v.type))}</span><span class="chip accent">Visual check</span></div></div>`;
+  let r;
+  try {
+    r = checkVisual(v, page, state.pbix.report, visualModel());
+  } catch (e) {
+    console.error(e);
+    r = { ok: false, reason: 'the check failed (' + e.message + ')' };
+  }
+  if (!r.ok) {
+    c.innerHTML = h + `<div class="note">This visual cannot be rebuilt here: ${esc(r.reason)}. Its fields and filters are listed on the Report pages view.</div>`;
+    $('backToReport').addEventListener('click', e => { e.preventDefault(); go({ view: 'report' }); });
+    return;
+  }
+  h += `<div class="note info">These are the rows this visual should show, rebuilt from the stored data with the visual's fields and every filter listed below. The Total row is worked out the way Power BI does it, over all the rows the visual covers, so it can differ from adding up the rows. Compare it with the visual in Power BI Desktop and with your source system.</div>`;
+  const filterChips = r.filters.length
+    ? r.filters.map(f => `<span class="filter"><span class="filter-src">${esc(f.source)}</span> ${esc(f.text)}</span>`).join('')
+    : '<span class="muted">No filters apply to this visual.</span>';
+  h += `<div class="filters" style="margin:0 0 10px"><span class="filters-label">Filters applied</span>${filterChips}</div>`;
+  for (const n of r.notes) h += `<p class="muted" style="margin:0 0 6px;font-size:13px">${esc(n)}</p>`;
+  h += `<div class="toolbar" style="margin-top:8px"><span class="count-label">${fmtCount(r.rowCount)} row${r.rowCount === 1 ? '' : 's'}</span><span class="spacer"></span>
+      <button class="btn btn-small" id="vcCopy">${ICON_COPY}Copy for Excel</button>
+      <button class="btn btn-small" id="vcCsv">${ICON_DOWN}Download CSV</button></div>
+    <div class="data-area"><div id="vcGrid"></div><div class="statusbar" id="vcStatus">Click a cell to select it, then press <kbd>Ctrl</kbd>+<kbd>C</kbd> to copy its exact value.</div></div>`;
+  c.classList.add('fill');
+  c.innerHTML = h;
+  $('backToReport').addEventListener('click', e => { e.preventDefault(); go({ view: 'report' }); });
+  const cols = r.columns;
+  const order = cols.length ? cols[0].values.map((_, i) => i) : [];
+  const firstGroup = cols.findIndex(col => col.group);
+  const totals = r.hasTotals ? cols.map((col, i) => {
+    if (col.group) return i === firstGroup ? { text: 'Total', kind: 'label' } : null;
+    if (col.total == null) return null;
+    const t = typeof col.total === 'number' ? (col.fmt.kind === 'int' ? fmtCount(col.total) : displayTotal(col.total, col.fmt)) : display(col.total, col.fmt);
+    return { text: t, kind: 'sum', negative: typeof col.total === 'number' && col.total < 0, title: `Total of ${col.name}, worked out over every row the visual covers` };
+  }) : null;
+  state.grid = new Grid($('vcGrid'), {
+    columns: cols.map(col => ({ name: col.name, fmt: col.fmt, sub: col.error ? 'not worked out' : col.sub })),
+    rowCount: order.length,
+    getValue: (row, ci) => cols[ci].values[row],
+    totals,
+    totalsLabel: 'Totals, worked out the way Power BI does',
+    onSelect: ({ row, column, value }) => {
+      $('vcStatus').innerHTML = `Row ${fmtCount(row + 1)} · <strong>${esc(column.name)}</strong> = ${value == null ? '<em>blank</em>' : esc(raw(value, column.fmt))} <span class="muted">· <kbd>Ctrl</kbd>+<kbd>C</kbd> copies it</span>`;
+    },
+    onCopy: async ({ row, col }) => { if (await copyText(raw(cols[col].values[row], cols[col].fmt))) toast('Copied the cell value'); },
+  });
+  $('vcCopy').addEventListener('click', async () => {
+    if (await copyText(toDelimited(cols, order, '\t'))) toast(`Copied ${fmtCount(order.length)} rows. Paste into Excel.`);
+    else toast('Copying was blocked by the browser; use Download CSV instead.');
+  });
+  $('vcCsv').addEventListener('click', () => downloadText(toDelimited(cols, order, ','), exportName(`${title} - visual check`, 'csv'), 'text/csv;charset=utf-8'));
 }
 
 // ---------------------------------------------------------------- SQL

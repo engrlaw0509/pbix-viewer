@@ -1,6 +1,7 @@
 // Static file server for hosting on Railway (or anywhere Node runs). No dependencies.
 // The page itself does all the work in the browser; this only hands out the files.
 import { createServer } from 'node:http';
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -45,16 +46,25 @@ createServer(async (req, res) => {
   const file = normalize(join(ROOT, path));
   if (!file.startsWith(ROOT.endsWith(sep) ? ROOT : ROOT + sep)) { res.writeHead(403).end(); return; }
   try {
-    let body = cache.get(file);
-    if (!body) { body = await readFile(file); cache.set(file, body); }
+    let entry = cache.get(file);
+    if (!entry) {
+      const body = await readFile(file);
+      entry = { body, etag: '"' + createHash('sha1').update(body).digest('base64url') + '"' };
+      cache.set(file, entry);
+    }
+    // Every file revalidates (cheap 304s): the modules import each other, so after a
+    // deploy a fresh page must never run against a stale cached module.
+    const common = { 'Cache-Control': 'no-cache', ETag: entry.etag, ...HEADERS };
+    if (req.headers['if-none-match'] === entry.etag) {
+      res.writeHead(304, common).end();
+      return;
+    }
     res.writeHead(200, {
       'Content-Type': TYPES[extname(file)] || 'application/octet-stream',
-      'Content-Length': body.length,
-      // HTML always revalidates so a new deploy shows at once; assets may be cached briefly.
-      'Cache-Control': path === '/index.html' ? 'no-cache' : 'public, max-age=300',
-      ...HEADERS,
+      'Content-Length': entry.body.length,
+      ...common,
     });
-    res.end(req.method === 'HEAD' ? undefined : body);
+    res.end(req.method === 'HEAD' ? undefined : entry.body);
   } catch {
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', ...HEADERS }).end('Not found');
   }

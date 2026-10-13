@@ -131,16 +131,19 @@ class Parser {
     let result;
     if (COLUMN_AGGS.includes(fn)) {
       const { table, column, name } = this.colRef(null);
-      result = aggregate(fn, column.values, column.numeric, table.name, name);
+      const values = table.rows ? table.rows.map(r => column.values[r]) : column.values;
+      result = aggregate(fn, values, column.numeric, table.name, name);
     } else if (fn === 'COUNTROWS') {
       const table = this.tableRef();
-      result = { value: table.rowCount || null, sql: `SELECT COUNT(*) FROM ${q(table.name)}` };
+      const n = table.rows ? table.rows.length : table.rowCount;
+      result = { value: n || null, sql: `SELECT COUNT(*) FROM ${q(table.name)}` };
     } else if (ITERATORS.includes(fn)) {
       const table = this.tableRef();
       this.expect(',');
       const rowExpr = this.rowExpr(table);
       const vals = [];
-      for (let r = 0; r < table.rowCount; r++) vals.push(rowExpr.eval(r));
+      if (table.rows) for (const r of table.rows) vals.push(rowExpr.eval(r));
+      else for (let r = 0; r < table.rowCount; r++) vals.push(rowExpr.eval(r));
       const base = { SUMX: 'SUM', AVERAGEX: 'AVERAGE', MINX: 'MIN', MAXX: 'MAX', COUNTX: 'COUNT' }[fn];
       result = aggregate(base, vals, true, table.name, null);
       result.sql = rowExpr.sql ? `SELECT ${base === 'AVERAGE' ? 'AVG' : base}(${rowExpr.sql}) FROM ${q(table.name)}` : null;
@@ -232,8 +235,10 @@ function aggregate(fn, values, numeric, tableName, colName) {
   return { value, sql };
 }
 
-// ctx: { getTable(name) -> {name, rowCount, columns: Map(name -> {values, numeric})} | null,
+// ctx: { getTable(name) -> {name, rowCount, rows?, columns: Map(name -> {values, numeric})} | null,
 //        measures: [{name, expression}] }
+// `rows`, when present, lists the row indexes visible in the current filter context
+// (used by the visual check); without it the whole table counts.
 export function evaluateMeasure(expression, ctx, depth = 0) {
   if (depth > 8) throw new Unsupported('measure references go too deep');
   const tokens = tokenize(expression || '');

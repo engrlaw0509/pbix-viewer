@@ -209,6 +209,55 @@ function aggName(n) {
   return ['Sum', 'Average', 'Count', 'Min', 'Max', 'CountNonNull', 'Median', 'StandardDeviation', 'Variance'][n] || 'Agg';
 }
 
+// Power BI writes the aggregation into the queryRef ("Sum(Table.col)"), including for
+// plain Column fields that a visual summarizes by default. The name there is
+// authoritative; the numeric Function code is only a fallback.
+const QUERYREF_AGGS = { Sum: 'Sum', Avg: 'Average', Average: 'Average', Min: 'Min', Max: 'Max', Count: 'Count', CountNonNull: 'CountNonNull', DistinctCount: 'Count', Median: 'Median', StandardDeviation: 'StandardDeviation', Variance: 'Variance' };
+const DATE_LEVELS = ['Year', 'Quarter', 'Month', 'Day'];
+
+// Turns a semantic-query field into { kind: 'column' | 'measure' | 'hierarchy', table,
+// column | name | hierarchy, agg?, level? }. `aliases` maps filter source names to tables.
+export function parseFieldRef(f, queryRef = '', aliases = null) {
+  if (!f || typeof f !== 'object') return null;
+  const ent = e => {
+    const s = e?.SourceRef;
+    if (!s) return null;
+    return s.Entity ?? (aliases && aliases.get(s.Source)) ?? s.Source ?? null;
+  };
+  const m = /^([A-Za-z]+)\((.*)\)$/.exec(queryRef);
+  const qrAgg = m ? QUERYREF_AGGS[m[1]] || null : null;
+  if (f.Measure) return { kind: 'measure', table: ent(f.Measure.Expression), name: f.Measure.Property };
+  if (f.Aggregation) {
+    const inner = parseFieldRef(f.Aggregation.Expression, '', aliases);
+    if (!inner || inner.kind !== 'column') return null;
+    return { ...inner, agg: qrAgg || aggName(f.Aggregation.Function) };
+  }
+  if (f.Column) {
+    const pvs = f.Column.Expression?.PropertyVariationSource;
+    const out = { kind: 'column', table: pvs ? ent(pvs.Expression) : ent(f.Column.Expression), column: pvs ? pvs.Property : f.Column.Property };
+    if (qrAgg) out.agg = qrAgg;
+    const lv = /\.Variation\.[^.]+\.(Year|Quarter|Month|Day)$/.exec(queryRef);
+    if (lv) out.level = lv[1];
+    return out;
+  }
+  if (f.HierarchyLevel) {
+    const h = f.HierarchyLevel.Expression?.Hierarchy;
+    const pvs = h?.Expression?.PropertyVariationSource;
+    const level = f.HierarchyLevel.Level;
+    if (pvs && DATE_LEVELS.includes(level)) return { kind: 'column', table: ent(pvs.Expression), column: pvs.Property, level };
+    return { kind: 'hierarchy', table: ent(h?.Expression), hierarchy: h?.Hierarchy, level };
+  }
+  return null;
+}
+
+export function fieldLabel(r) {
+  if (!r) return '?';
+  if (r.kind === 'measure') return `${r.table}[${r.name}]`;
+  if (r.kind === 'hierarchy') return `${r.table}[${r.hierarchy}] ${r.level}`;
+  const base = `${r.table}[${r.column}]`;
+  return (r.agg ? `${r.agg}(${base})` : base) + (r.level ? ` (${r.level})` : '');
+}
+
 function literalTitle(objects) {
   const t = objects?.title?.[0]?.properties?.text?.expr?.Literal?.Value;
   return typeof t === 'string' ? t.replace(/^'|'$/g, '').replace(/''/g, "'") : null;
@@ -221,7 +270,7 @@ function appliedFilters(filterConfig) {
   return describeFilters(filterConfig?.filters || []);
 }
 
-function describeFilters(list) {
+export function describeFilters(list) {
   return (list || [])
     .filter(fl => fl && fl.filter && (fl.filter.Where || []).length)
     .map(fl => describeFilter(fl))
@@ -279,7 +328,7 @@ function readReport(zip) {
     const m = name.match(/^Report\/definition\/pages\/([^/]+)\/page\.json$/);
     if (m) pageIds.add(m[1]);
   }
-  if (!pageIds.size && !zip['Report/Layout']) return { format: 'none', pages: [], filters: [] };
+  if (!pageIds.size && !zip['Report/Layout']) return { format: 'none', pages: [], filters: [], rawFilters: [] };
   if (pageIds.size) {
     const order = pagesJson?.pageOrder || [...pageIds];
     const pages = order.filter(id => pageIds.has(id)).map(id => {
@@ -292,29 +341,53 @@ function readReport(zip) {
           const fields = [];
           for (const [role, proj] of Object.entries(q)) {
             for (const p of proj?.projections || []) {
-              fields.push({ role, field: fieldName(p.field) || p.queryRef || '?', label: p.displayName || null });
+              const ref = parseFieldRef(p.field, p.queryRef || '');
+              fields.push({
+                role,
+                ref,
+                field: ref ? fieldLabel(ref) : p.queryRef || '?',
+                label: p.displayName || null,
+                header: p.displayName || p.nativeQueryRef || (ref ? fieldLabel(ref) : p.queryRef) || '?',
+                active: p.active,
+              });
             }
           }
           const filters = appliedFilters(v.filterConfig);
+          const slicerFilter = v.visual?.objects?.general?.[0]?.properties?.filter?.filter;
           return {
+            id: v.name || n.split('/').slice(-2, -1)[0],
             type: v.visual?.visualType || (v.visualGroup ? 'group' : 'unknown'),
             title: literalTitle(v.visual?.visualContainerObjects) || null,
             fields, filters,
+            rawFilters: (v.filterConfig?.filters || []).filter(fl => fl.filter && (fl.filter.Where || []).length),
+            slicerSelection: slicerFilter && (slicerFilter.Where || []).length ? slicerFilter : null,
+            sort: (v.visual?.query?.sortDefinition?.sort || []).map(s => ({ ref: parseFieldRef(s.field), dir: s.direction === 'Descending' ? -1 : 1 })).filter(s => s.ref),
             position: v.position || null,
             hidden: !!v.isHidden,
           };
         })
         .sort((a, b) => (a.position?.y ?? 0) - (b.position?.y ?? 0) || (a.position?.x ?? 0) - (b.position?.x ?? 0));
       const filters = appliedFilters(page.filterConfig);
-      return { name: page.displayName || id, visuals, filters, hidden: page.visibility === 'HiddenInViewMode' };
+      return {
+        id,
+        name: page.displayName || id,
+        visuals, filters,
+        rawFilters: (page.filterConfig?.filters || []).filter(fl => fl.filter && (fl.filter.Where || []).length),
+        interactions: page.visualInteractions || [],
+        hidden: page.visibility === 'HiddenInViewMode',
+      };
     });
     const report = parseJson(zip['Report/definition/report.json']) || {};
-    return { format: 'PBIR', pages, filters: appliedFilters(report.filterConfig) };
+    return {
+      format: 'PBIR', pages,
+      filters: appliedFilters(report.filterConfig),
+      rawFilters: (report.filterConfig?.filters || []).filter(fl => fl.filter && (fl.filter.Where || []).length),
+    };
   }
 
   // Legacy format: Report/Layout is one UTF-16 JSON document
   const layout = parseJson(zip['Report/Layout'], true);
-  if (!layout) return { format: 'none', pages: [], filters: [] };
+  if (!layout) return { format: 'none', pages: [], filters: [], rawFilters: [] };
   const list = s => {
     if (Array.isArray(s)) return s;
     try { return typeof s === 'string' ? JSON.parse(s) : []; } catch (e) { return []; }
@@ -326,19 +399,22 @@ function readReport(zip) {
       const sv = cfg.singleVisual || {};
       const fields = [];
       for (const [role, list] of Object.entries(sv.projections || {})) {
-        for (const p of list || []) fields.push({ role, field: p.queryRef || '?', label: null });
+        // ref stays null: the visual check reads the PBIR format only for now
+        for (const p of list || []) fields.push({ role, ref: null, field: p.queryRef || '?', label: null, header: p.queryRef || '?' });
       }
       return {
+        id: cfg.name || null,
         type: sv.visualType || (cfg.singleVisualGroup ? 'group' : 'unknown'),
         title: literalTitle(sv.vcObjects),
         fields, filters: describeFilters(list(vc.filters)),
+        rawFilters: [], slicerSelection: null, sort: [],
         position: { x: vc.x, y: vc.y },
         hidden: false,
       };
     }).sort((a, b) => (a.position.y ?? 0) - (b.position.y ?? 0) || (a.position.x ?? 0) - (b.position.x ?? 0));
-    return { name: s.displayName || s.name, visuals, filters: describeFilters(list(s.filters)), hidden: false };
+    return { id: s.name, name: s.displayName || s.name, visuals, filters: describeFilters(list(s.filters)), rawFilters: [], interactions: [], hidden: false };
   });
-  return { format: 'Layout', pages, filters: describeFilters(list(layout.filters)) };
+  return { format: 'Layout', pages, filters: describeFilters(list(layout.filters)), rawFilters: [] };
 }
 
 // Power Query M from the DataMashup part (older files keep queries only here).

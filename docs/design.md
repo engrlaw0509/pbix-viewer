@@ -31,4 +31,8 @@ numbers clearly and get them into Excel fast.
   equivalent SQL; anything else is labelled as not worked out rather than guessed.
 - **Report:** visuals list their fields and their applied filters in words, since a
   report number that does not match is most often explained by a visual filter.
+- **Visual check (13 Oct 2026):** asked whether graphical reports were needed; the answer
+  was no, since redrawn charts could look right yet differ from Power BI. Instead each
+  report visual can rebuild the rows it should show, with its filters, relationships and
+  Total row, as a table to copy into Excel. Unsupported cases are labelled, not guessed.
 - **Look:** light only, matching the owner's preference for bright consumer UIs.

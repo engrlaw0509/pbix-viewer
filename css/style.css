@@ -333,6 +333,9 @@ table.list td.nowrap { white-space: nowrap; }
 .filters { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
 .panel-note .filters, .panel > .filters { margin-top: 0; }
 .filters-label { font-size: 12px; font-weight: 600; color: var(--warn-text); }
+.filter-src { font-family: var(--font); font-weight: 600; margin-right: 2px; }
+.visual-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.visual-head .btn { flex: none; }
 .filter { font-family: var(--mono); font-size: 12px; background: var(--warn-bg); border: 1px solid var(--warn-border); color: var(--warn-text); border-radius: 5px; padding: 2px 7px; }
 
 /* ---------- SQL ---------- */
