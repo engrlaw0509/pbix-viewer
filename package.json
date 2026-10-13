@@ -5,7 +5,11 @@
   "description": "Open a Power BI .pbix file in the browser and check its data. Nothing is uploaded.",
   "type": "module",
   "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
+    "start": "node server.mjs",
     "vendor": "node tools/vendor.mjs",
     "verify": "node tools/verify.mjs"
   },
